@@ -1,8 +1,10 @@
 # TODOアプリ V1 設計書
 
-状態：設計案（推奨方式・追加ファイル配置承認済み）  
+状態：改訂設計案（今回の指定を反映・要確認事項あり）  
 対象：`feature/todo-app`  
-参照：[`01_requirements.md`](./01_requirements.md)
+参照：[`01_requirements.md`](./01_requirements.md)（確定版、変更しない。参照時のGit blob: `d2b7d95907349f8d73208e4650dc64f1820a5cb6`）
+
+本書は要件ID REQ-01（一覧表示）、REQ-02（登録）、REQ-03（完了状態の部分更新）、REQ-04（削除）を参照する。元の要件ID・機能名・受け入れ条件を変更しない。今回指定されたテーブル名は `todo_tasks`、画面は `/todo`、APIは `/api/v1/todos` とする。APIのJSONキーのcamelCase指定と要件定義書3.1の日時項目名の差異は8章の要確認事項に示す。
 
 ## 1 作るものとファイルの役割
 
@@ -10,7 +12,7 @@
 
 ### ファイル構成（授業テキストに合わせた推奨配置）
 
-下記は授業で提示された推奨構成であり、強制ではない。既存ファイルと新規候補を区別する。承認済みの追加ファイルも推奨構成に含める。実際の配置・設定を確認できていない箇所は要確認とする。
+授業の構成を推奨とし、今回指定された5ディレクトリにTODO用の追加ファイルを分ける。既存ファイルは維持する。個別ファイルの配置は推奨案とし、未確定の事項は要確認とする。
 
 ```text
 プロジェクト直下/
@@ -31,8 +33,8 @@
 │   ├── todoValidator.ts
 │   ├── todoTypes.ts
 │   ├── todoError.ts
-│   └── todoDb.ts
-├── tests/todo/
+│   ├── todoDb.ts
+│   └── tests/                    自動テスト（配置は要確認）
 ├── docs/todo/
 │   ├── 01_requirements.md
 │   ├── 02_design.md
@@ -40,21 +42,18 @@
 │   ├── 04_test_results.md
 │   └── v2/
 └── sql/
-    ├── README.md
-    ├── 000_check_connection.sql
-    ├── 010_setup_sample_products.sql
     └── todo/
         └── 020_create_todo_tasks.sql
 ```
 
-`index.ts`、`db.ts`、`package.json`、`tsconfig.json`、`docs/todo/01_requirements.md` は既存リポジトリで確認済み。他は承認済みの新規作成予定または授業上の参考配置であり、現時点で存在することを確認したものではない。`010_setup_sample_products.sql` は第2回演習者のみが対象で、TODOの動作に依存させない。実装手順書・テスト結果書・発展課題は本書の作成対象外とする。
+`index.ts`、`db.ts`、`package.json`、`tsconfig.json`、`docs/todo/01_requirements.md`、`docs/todo/02_design.md` は既存リポジトリで確認済み。他は新規作成予定または授業上の参考配置であり、実在を確認したものではない。授業の参考SQL（`sql/README.md`、`sql/000_check_connection.sql`、第2回演習者のみの `sql/010_setup_sample_products.sql`）はTODOの動作の前提にしない。実装計画書・テスト結果書・発展課題は本書の改訂対象外とする。
 
 | ファイル（推奨配置） | 役割 |
 | --- | --- |
 | `index.ts` | Expressの起動と共通設定。TODO Routerの登録のみを追加することを原則とする。 |
 | `db.ts` | 既存のPostgreSQL接続プール。新しいプールを作成しない。 |
-| `src/apps/todo/todoRouter.ts` | URL、HTTPメソッド、ミドルウェアの適用順序、Controllerへの接続。 |
-| `src/apps/todo/todoController.ts` | 入力検証の呼び出し、Modelの呼び出し、レスポンスの組み立て。 |
+| `src/apps/todo/todoRouter.ts` | `/api/v1/todos` 専用Router。相対パス `/`・`/:id`、HTTPメソッド、ミドルウェアの適用順序、Controllerへの接続。 |
+| `src/apps/todo/todoController.ts` | 画面用 `renderTodoPage` とAPIの入力検証・Model呼び出し・レスポンス組み立て。 |
 | `src/apps/todo/todoModel.ts` | SQL、DBトランザクション、取得した行の変換。HTTPやDOMには依存しない。 |
 | `views/todo/index.ejs` | タイトル入力、一覧、状態・エラー領域のHTML。 |
 | `public/todo/todo.js` | TodoApiの利用、イベント処理、画面描画、操作状態管理。 |
@@ -70,24 +69,37 @@
 | DB期限管理・トランザクション補助 | `src/apps/todo/todoDb.ts` |
 | TodoApiクラス | `public/todo/todoApi.js` |
 | 素のCSS | `public/todo/todo.css` |
-| 自動テスト | `tests/todo/` |
+| 自動テスト | `src/apps/todo/tests/`（要確認：旧設計の `tests/todo/` からの変更案） |
 | Vercel設定ファイル | 要確認（既存設定・現在のデプロイ方式を確認し、必要な場合のみ追加） |
 
 ### index.tsへの変更
 
-既存の `/`、`/api/db-check`、EJS設定、静的ファイル設定、ローカル起動を維持する。TODO RouterはAPIのフォーム形式を先に解析させないため、既存の `express.urlencoded()` の登録より前にマウントする。EJS設定は従来どおりサーバー起動前に完了させる。
+既存のTOP（`GET /`、200・`2026-11-10 test`）、DB接続確認（`GET /api/db-check`、従来のJSONとステータス）、`db.ts` のpool、EJS設定、静的ファイル設定、3000番ポートのローカル起動を維持する。API用の `todoRouter` を既存 `express.urlencoded()` より前にマウントする。画面のGETは既存EJS設定後に登録する。画面用Controllerの名前は推奨案とする。
 
-追記例（推奨配置に従う場合の差分イメージ）：
+現行 `index.ts` に対する差分（追加3行＋画面ルート1行、既存行は変更しない）：
 
-```typescript
-import todoRouter from './src/apps/todo/todoRouter';
+```diff
+ import express, { Request, Response } from "express";
+ import path from "path";
+ import { pool } from "./db";
++import todoRouter from "./src/apps/todo/todoRouter";
++import { renderTodoPage } from "./src/apps/todo/todoController";
+
+ const app = express(); // Expressアプリケーションを作成
+ const port: number = 3000; // ローカルで使用するポート番号
+
+ // ------------------------------
+ // Expressの基本設定
+ // ------------------------------
++app.use("/api/v1/todos", todoRouter);
+ app.use(express.urlencoded({ extended: true })); // フォームから送信されたデータを受け取れるようにする
+ app.use(express.static(path.join(process.cwd(), "public"))); // CSSや画像などの静的ファイルを公開する
+ app.set("view engine", "ejs"); // テンプレートエンジンにEJSを設定
+ app.set("views", path.join(process.cwd(), "views")); // EJSファイルを保存するフォルダーを指定
++app.get("/todo", renderTodoPage);
 ```
 
-```typescript
-app.use(todoRouter);
-```
-
-`todoRouter` の内部に画面用ルートとAPI用のサブRouterを持たせる。TODO固有のJSON解析、エラー処理はAPI用サブRouterに閉じ込める。既存コードの不要な整形・移動や全体的な再構成は行わない。Vercelで追加修正が必要な場合は理由を明示し、最小限にする。
+`todoRouter.ts` は `express.Router()` を生成してデフォルトexportする。`router.get("/")`、`router.post("/")`、`router.patch("/:id")`、`router.delete("/:id")` をControllerに接続し、HEAD・OPTIONS・405・404・専用エラー処理を同Routerに閉じ込める（完全URLをRouter内で重複指定しない）。`renderTodoPage` は `res.render("todo/index")` を呼ぶ。既存ルートの処理、サーバー起動、グローバルなボディパーサー・キャッシュ設定を変更しない。Vercelで追加修正が必要な場合は理由を明示し、最小限にする。
 
 ## 2 リクエストはどこを通るか
 
@@ -95,12 +107,12 @@ app.use(todoRouter);
 
 ```mermaid
 flowchart TD
-    B[ブラウザ] -->|GET /todo| R[Todo Router]
+    B[ブラウザ] -->|GET /todo| R[index.ts 画面ルート]
     R --> C[Todo Controller]
     C --> V[EJS画面]
     V --> B
     B --> A[TodoApi / Fetch]
-    A -->|/api/v1/todos| AR[API Router]
+    A -->|/api/v1/todos| AR[index.tsでマウントした todoRouter]
     AR --> G[共通検証]
     G --> AC[Todo Controller]
     AC --> M[Todo Model]
@@ -126,13 +138,13 @@ flowchart TD
 | `HEAD /api/v1/todos` | 一覧Controller相当 | GET相当のステータス・ヘッダー、本文なし |
 | `OPTIONS /api/v1/todos`・`OPTIONS /api/v1/todos/:id` | API Router | 204、Allow、本文なし |
 
-`/api/v1/todos` をAPIサブRouterの境界とし、その配下だけで未定義パス404、未対応メソッド405を処理する。既存ルートにはTODO用のエラー形式を適用しない。
+`/api/v1/todos` をAPI専用Routerの境界とし、その配下だけで未定義パス404、未対応メソッド405を処理する。既存ルートにはTODO用のエラー形式を適用しない。
 
 ## 3 DBの設計
 
 ### テーブル定義
 
-テーブル名は `todos`。PostgreSQLの既存データベースを利用する。
+テーブル名は `todo_tasks`。PostgreSQLの既存データベースを利用する。
 
 | カラム | 型 | 制約・初期値 |
 | --- | --- | --- |
@@ -147,23 +159,23 @@ flowchart TD
 ```sql
 BEGIN;
 
-CREATE TABLE todos (
+CREATE TABLE todo_tasks (
     id INTEGER GENERATED ALWAYS AS IDENTITY (NO CYCLE) PRIMARY KEY,
     title VARCHAR(100) NOT NULL,
     completed BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    CONSTRAINT todos_id_positive CHECK (id >= 1),
-    CONSTRAINT todos_title_length CHECK (char_length(title) BETWEEN 1 AND 100),
-    CONSTRAINT todos_title_no_breaks CHECK (
+    CONSTRAINT todo_tasks_id_positive CHECK (id >= 1),
+    CONSTRAINT todo_tasks_title_length CHECK (char_length(title) BETWEEN 1 AND 100),
+    CONSTRAINT todo_tasks_title_no_breaks CHECK (
         position(chr(10) in title) = 0
         AND position(chr(13) in title) = 0
         AND position(chr(9) in title) = 0
     )
 );
 
-CREATE INDEX todos_created_at_id_idx
-    ON todos (created_at DESC, id DESC);
+CREATE INDEX todo_tasks_created_at_id_idx
+    ON todo_tasks (created_at DESC, id DESC);
 
 COMMIT;
 ```
@@ -174,7 +186,7 @@ SQLは手動で適用する。起動時のCREATE、DROP、TRUNCATE、データ�
 
 ### 登録件数の上限と同時実行
 
-最大1,000件は完了済みを含む `todos` の現在件数とする。POSTの件数確認とINSERTを、同じプールクライアント上のREAD COMMITTEDトランザクションで実行する。件数確認前に `SHARE ROW EXCLUSIVE` のテーブルロックを取得し、他の登録・更新・削除と競合する場合は待機させる。通常のSELECTは妨げない。上限到達時はROLLBACKして409を返す。
+最大1,000件は完了済みを含む `todo_tasks` の現在件数とする。POSTの件数確認とINSERTを、同じプールクライアント上のREAD COMMITTEDトランザクションで実行する。件数確認前に `SHARE ROW EXCLUSIVE` のテーブルロックを取得し、他の登録・更新・削除と競合する場合は待機させる。通常のSELECTは妨げない。上限到達時はROLLBACKして409を返す。
 
 PATCH・DELETEは対象行の変更を単一SQLで行う。競合時はDBの行ロックによって処理順が決まり、削除済みの行を挿入し直さない。すべての変更はCOMMIT成功後に成功応答を返す。DBエラー時はROLLBACKし、クライアントを必ず解放する（状態不明・接続破損時は破棄する）。
 
@@ -182,15 +194,31 @@ PATCH・DELETEは対象行の変更を単一SQLで行う。競合時はDBの行�
 
 ### データ形式
 
-TODOのJSONは常に次の5項目を返す。DBの行型とAPI用の型は分け、日時を文字列に変換する。
+TODOのJSONは次の5項目をcamelCaseで返す。DB列はsnake_caseとし、Modelで明示的に変換する。要件定義書3.1では日時項目を `created_at`・`updated_at` と記載しているため、APIキーの変更は要確認とする（本書の案は今回指定のcamelCase、要件定義書は変更しない）。
+
+| DB列（snake_case） | JSONキー（camelCase） | 変換 |
+| --- | --- | --- |
+| `id` | `id` | 整数 |
+| `title` | `title` | 文字列 |
+| `completed` | `completed` | 真偽値 |
+| `created_at` | `createdAt` | UTCのISO 8601文字列（ミリ秒精度） |
+| `updated_at` | `updatedAt` | UTCのISO 8601文字列（ミリ秒精度） |
 
 ```typescript
+interface TodoRow {
+    id: number;
+    title: string;
+    completed: boolean;
+    created_at: Date;
+    updated_at: Date;
+}
+
 interface Todo {
     id: number;
     title: string;
     completed: boolean;
-    created_at: string;
-    updated_at: string;
+    createdAt: string;
+    updatedAt: string;
 }
 
 interface CreateTodoInput {
@@ -213,7 +241,7 @@ interface ApiErrorBody {
 }
 ```
 
-上記の型は原則として `todoTypes.ts` に定義する。
+上記の型は原則として `todoTypes.ts` に定義する。Modelでは `TodoRow` をそのままJSONにせず、`id`・`title`・`completed` と `createdAt: row.created_at.toISOString()`・`updatedAt: row.updated_at.toISOString()` を持つ `Todo` に変換する。POST/PATCHの本文のキーは変更しない。エラーJSONの `error`・`code`・`message` も変更しない。
 
 ### 成功・ヘッダー
 
@@ -256,11 +284,27 @@ DBは既存poolを利用する。`connectionTimeoutMillis` の必要な最小変
 
 ## 5.1 REQ-01 TODO一覧を取得する
 
-**API：** `GET /api/v1/todos`。入力なし。Controllerは共通検証後、Modelの一覧取得を実行する。
+ルーティング共通の404（未定義パス）・405（未対応メソッド）は4章・7章を参照。以下の失敗ステータスは各操作が正しいメソッド・パスで呼び出された場合にアプリケーションが返すものを示す。Vercel・通信障害等は別扱いとする。
+
+| 項目 | 設計 |
+| --- | --- |
+| 要件ID | REQ-01 一覧表示（要件定義書2章） |
+| メソッド | GET |
+| URL | `/api/v1/todos` |
+| 本文 | なし（本文は入力として使用しない） |
+| 成功HTTPステータス | 200 OK（0件も200） |
+| 失敗HTTPステータス | 400：未定義クエリ、500：内部エラー、503：DB接続障害・タイムアウト |
+| JSON例（成功） | `{"data":[{"id":1,"title":"架空の課題を確認する","completed":false,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}]}`、0件：`{"data":[]}` |
+| JSON例（失敗） | 503：`{"error":{"code":"SERVICE_UNAVAILABLE","message":"データベースを利用できません"}}` |
+| DB処理 | `todo_tasks` を `created_at DESC, id DESC` でSELECTし、各行をTodoへ変換する。 |
+| TodoApiメソッド | `list()` → `Promise<Todo[]>` |
+| 確認方法 | `curl -i http://localhost:3000/api/v1/todos`、画面 `/todo`、分離DBで0件・複数件・同一日時・取得失敗を確認。0件時の画面文言は「TODOがありません」。キャッシュ・HEADも確認。 |
+
+Controllerは共通検証後、Modelの一覧取得を実行する。
 
 ```sql
 SELECT id, title, completed, created_at, updated_at
-FROM todos
+FROM todo_tasks
 ORDER BY created_at DESC, id DESC;
 ```
 
@@ -273,8 +317,8 @@ ORDER BY created_at DESC, id DESC;
             "id": 1,
             "title": "架空の課題を確認する",
             "completed": false,
-            "created_at": "2026-01-01T00:00:00.000Z",
-            "updated_at": "2026-01-01T00:00:00.000Z"
+            "createdAt": "2026-01-01T00:00:00.000Z",
+            "updatedAt": "2026-01-01T00:00:00.000Z"
         }
     ]
 }
@@ -284,7 +328,19 @@ ORDER BY created_at DESC, id DESC;
 
 ## 5.2 REQ-02 TODOを登録する
 
-**API：** `POST /api/v1/todos`。
+| 項目 | 設計 |
+| --- | --- |
+| 要件ID | REQ-02 登録（要件定義書2章） |
+| メソッド | POST |
+| URL | `/api/v1/todos` |
+| 本文 | 必須JSON：`{"title":"架空の課題を確認する"}`（titleのみ、trim後1〜100コードポイント） |
+| 成功HTTPステータス | 201 Created |
+| 失敗HTTPステータス | 400：空本文・不正JSON・未定義クエリ、409：登録上限、413：本文超過、415：Content-Type等違反、422：入力条件違反、500：ID枯渇・内部エラー、503：DB接続障害・タイムアウト |
+| JSON例（成功） | `{"data":{"id":1,"title":"架空の課題を確認する","completed":false,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}}` |
+| JSON例（失敗） | 422：`{"error":{"code":"VALIDATION_ERROR","message":"入力値が不正です"}}` |
+| DB処理 | `todo_tasks` をロックし件数確認後、パラメータ化INSERT。COMMIT成功後に返す。 |
+| TodoApiメソッド | `create(title)` → `Promise<Todo>` |
+| 確認方法 | POSTで201、trim、未完了、両日時の一致、画面の入力欄クリア・再読み込みを確認。1/100/101文字、Unicode、同名、禁止文字、同時登録・上限409、ID枯渇500を分離DBで確認。 |
 
 ```json
 {
@@ -299,17 +355,17 @@ BEGIN ISOLATION LEVEL READ COMMITTED;
 ```
 
 ```sql
-LOCK TABLE todos IN SHARE ROW EXCLUSIVE MODE;
+LOCK TABLE todo_tasks IN SHARE ROW EXCLUSIVE MODE;
 ```
 
 ```sql
-SELECT COUNT(*)::integer AS count FROM todos;
+SELECT COUNT(*)::integer AS count FROM todo_tasks;
 ```
 
 件数が1,000件以上ならROLLBACKして409。未満なら次のSQLを実行する。
 
 ```sql
-INSERT INTO todos (title)
+INSERT INTO todo_tasks (title)
 VALUES ($1)
 RETURNING id, title, completed, created_at, updated_at;
 ```
@@ -322,7 +378,19 @@ COMMIT;
 
 ## 5.3 REQ-03 完了状態を変える
 
-**API：** `PATCH /api/v1/todos/:id`。
+| 項目 | 設計 |
+| --- | --- |
+| 要件ID | REQ-03 完了状態の部分更新（要件定義書2章） |
+| メソッド | PATCH |
+| URL | `/api/v1/todos/:id`（例：`/api/v1/todos/1`） |
+| 本文 | 必須JSON：`{"completed":true}`（またはfalse、completedのみ） |
+| 成功HTTPステータス | 200 OK（同じ状態でも200） |
+| 失敗HTTPステータス | 400：不正ID・空本文・不正JSON・未定義クエリ、404：対象なし、413：本文超過、415：Content-Type等違反、422：入力条件違反、500：内部エラー、503：DB接続障害・タイムアウト |
+| JSON例（成功） | `{"data":{"id":1,"title":"架空の課題を確認する","completed":true,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:01:00.000Z"}}` |
+| JSON例（失敗） | 404：`{"error":{"code":"NOT_FOUND","message":"TODOが見つかりません"}}` |
+| DB処理 | `todo_tasks` の対象行をUPDATE RETURNING。状態変更時だけ更新日時を設定。COMMIT後に返す。 |
+| TodoApiメソッド | `updateCompleted(id, completed)` → `Promise<Todo>` |
+| 確認方法 | 同じIDにtrue、true、falseを送信し200、同一状態の日時不変、タイトル・ID・登録日時不変、再読込後の保持を確認。不正ID・余分なキー・存在しないID、競合更新・削除も分離DBで確認。 |
 
 ```json
 {
@@ -333,7 +401,7 @@ COMMIT;
 ControllerはIDと真偽値を検証し、Modelへ渡す。Modelは変更と取得を別々にせず、次の単一SQLを実行する（共通期限管理・トランザクション内）。
 
 ```sql
-UPDATE todos
+UPDATE todo_tasks
 SET completed = $2,
     updated_at = CASE
         WHEN completed IS DISTINCT FROM $2 THEN clock_timestamp()
@@ -347,17 +415,43 @@ RETURNING id, title, completed, created_at, updated_at;
 
 ## 5.4 REQ-04 TODOを削除する
 
-**API：** `DELETE /api/v1/todos/:id`。本文不要。
+| 項目 | 設計 |
+| --- | --- |
+| 要件ID | REQ-04 削除（要件定義書2章） |
+| メソッド | DELETE |
+| URL | `/api/v1/todos/:id`（例：`/api/v1/todos/1`） |
+| 本文 | なし（本文は入力として使用しない） |
+| 成功HTTPステータス | 204 No Content |
+| 失敗HTTPステータス | 400：不正ID・未定義クエリ、404：対象なし、500：内部エラー、503：DB接続障害・タイムアウト |
+| JSON例（成功） | なし（204は空本文。`{}` や `null` も返さない） |
+| JSON例（失敗） | 404：`{"error":{"code":"NOT_FOUND","message":"TODOが見つかりません"}}` |
+| DB処理 | `todo_tasks` の対象行をDELETE RETURNINGで物理削除。COMMIT後に204。 |
+| TodoApiメソッド | `remove(id)` → `Promise<void>` |
+| 確認方法 | 画面でキャンセル・承認を確認し、承認時のみDELETE。204の空本文、他行の維持、再読込後の消失、再削除404、削除済みIDの非再利用を確認。 |
 
 画面で確認ダイアログを表示し、承認された場合のみAPIを呼ぶ。ControllerはIDを検証してModelへ渡す。
 
 ```sql
-DELETE FROM todos
+DELETE FROM todo_tasks
 WHERE id = $1
 RETURNING id;
 ```
 
 結果が0行なら404、1行ならCOMMIT後に204を返す。`res.status(204).end()` とし、JSONを返さない。削除成功後は一覧を再取得する。削除済みIDは再利用しない。確認対象は確認・キャンセル、204の空本文、他行への影響なし、再削除404、削除と更新の競合とする。
+
+### 4操作の確認コマンド（分離DB、ローカル起動済み）
+
+```bash
+curl -i http://localhost:3000/api/v1/todos
+curl -i -X POST http://localhost:3000/api/v1/todos -H 'Content-Type: application/json' --data-binary '{"title":"Sample task"}'
+# POSTで返された自分の確認用IDに置換する
+TODO_ID='実際のID'
+curl -i -X PATCH "http://localhost:3000/api/v1/todos/$TODO_ID" -H 'Content-Type: application/json' --data-binary '{"completed":true}'
+curl -i -X DELETE "http://localhost:3000/api/v1/todos/$TODO_ID"
+curl -i http://localhost:3000/api/v1/todos
+```
+
+分離DBで正常系・異常系・境界値・競合を確認する。画面では開発者ツールのNetworkでAPIのステータス・JSONを確認し、要件定義書2章の受け入れ条件をすべて照合する。上のJSONのmessageは例示であり、要件で固定された文字列ではない。
 
 ## 6 画面とTodoApiの設計
 
@@ -438,7 +532,7 @@ flowchart TD
 }
 ```
 
-ModelはDBのエラーを分類し、Controller・Validatorは共通エラー型（HTTPステータス、コード、公開可能なメッセージ）を使用する。APIサブRouter末尾の4引数エラーミドルウェアでJSON応答に統一する。Express 5のasyncハンドラーから返された拒否はエラーミドルウェアへ渡す。HEADの場合はエラーも本文なしとする。送信済みの応答に再度JSONを送信しない。
+ModelはDBのエラーを分類し、Controller・Validatorは共通エラー型（HTTPステータス、コード、公開可能なメッセージ）を使用する。API専用Router末尾の4引数エラーミドルウェアでJSON応答に統一する。Express 5のasyncハンドラーから返された拒否はエラーミドルウェアへ渡す。HEADの場合はエラーも本文なしとする。送信済みの応答に再度JSONを送信しない。
 
 DB障害は接続系のSQLSTATE、接続断、接続取得失敗、期限に起因するクエリ中断等を基に判定する。例えばSQLSTATE `2200H` はシーケンス上限、`08` 系は接続障害である。権限不足やSQL構文不正等を無条件に503とせず500へ分類する。本文解析の413・400・415等はミドルウェアが返すエラー種別から変換し、スタックや生のDBメッセージ、リクエスト本文を公開しない。
 
@@ -448,16 +542,18 @@ DB障害は接続系のSQLSTATE、接続断、接続取得失敗、期限に起�
 
 ### 既存コード・ビルド・公開
 
+参照した現行設定は、Express 5、EJS、pg、dotenv、tsxが導入済み、`package.json` の `dev` は `tsx watch ./index.ts`、`build` は `tsc`、`start` は `node ./dist/index.js`。`tsconfig.json` はES2022・CommonJS・strict・出力先 `dist` である。DB接続は既存の `pool` を再利用する。追加ライブラリは原則不要とする。既存 `/api/db-check` のJSONはTODO APIのcamelCase規約の対象外である。
+
 - `index.ts` への追加はRouter登録を中心に最小化し、既存の `/` と `/api/db-check` のレスポンス・実行方法を維持する。
 - `db.ts` の既存poolを共用し、環境に合わせた接続情報は `DATABASE_URL` から取得する。未設定なら起動エラーとする。接続数上限2の既存設定は原則維持し、必要なタイムアウト設定だけを追加する。
-- `tsconfig.json` は現状 `include: ["index.ts"]`。index.tsからimportされるTypeScriptをビルド対象にできることを確認する。テストファイルは `tests/todo/` に配置する。テスト用の追加ビルド設定が必要かは実装時に確認する。ブラウザのJavaScriptはpublic配下に置き、TypeScriptビルドの対象にしない。
+- `tsconfig.json` は現状 `include: ["index.ts"]`。index.tsからimportされるTypeScriptをビルド対象にできることを確認する。テストファイルは `src/apps/todo/tests/` に配置する案とする（要確認）。テスト用の追加ビルド設定が必要かは実装時に確認する。ブラウザのJavaScriptはpublic配下に置き、TypeScriptビルドの対象にしない。
 - Vercelではpublic配下を静的ファイルとして配信する。EJSテンプレートがデプロイ成果物に含まれること、`/todo` のHTMLとJS/CSSが両環境で読み込まれること、関数の実行上限がサーバー側25秒を妨げないことを確認する。Vercel固有設定は現状を確認してから最小変更する。
 - `.env` とDB情報をコミットしない。他オリジンのCORS許可を追加しない。無認証のため第三者の直接操作を防げないことを前提とし、架空のデータのみ扱う。
 - パラメータ化SQLを使用する。トランザクション・エラー・期限処理は例外時も接続を解放し、同時登録や更新でデータ整合性を壊さない。コードのインデントは新規部分でスペース4つとする。
 
 ### テスト設計
 
-自動テストはNode.js標準の `node:test` を使用し、TypeScript実行には既存のtsxを利用する。APIテストはテスト専用ExpressアプリにTODO Routerをマウントする方式を候補とし、既存index.tsの起動副作用を避ける。実アプリも別途起動して既存ルート・画面を確認する。DB接続先はPreview・Productionの共有DBから分離したテスト専用Neon DBとし、各テストが実行順に依存しないよう準備・後処理を行う。テストコードは `tests/todo/` に配置する。実際のテスト専用Neon DBの準備状況は要確認とし、分離を確認できない状態で破壊的なテストを実行しない。
+自動テストはNode.js標準の `node:test` を使用し、TypeScript実行には既存のtsxを利用する。APIテストはテスト専用Expressアプリに `app.use("/api/v1/todos", todoRouter)` でマウントする方式を候補とし、既存index.tsの起動副作用を避ける。実アプリも別途起動して既存ルート・画面を確認する。DB接続先はPreview・Productionの共有DBから分離したテスト専用Neon DBとし、各テストが実行順に依存しないよう準備・後処理を行う。テストコードは `src/apps/todo/tests/` に配置する案とする（要確認）。実際のテスト専用Neon DBの準備状況は要確認とし、分離を確認できない状態で破壊的なテストを実行しない。
 
 | 対象 | 自動・手動確認項目 |
 | --- | --- |
@@ -471,12 +567,19 @@ DB障害は接続系のSQLSTATE、接続断、接続取得失敗、期限に起�
 
 Localで `npm ci`、`npm run dev`、`npm run build` と自動テストを確認する。異常系・上限・ID枯渇テストは分離DBで行う。Previewで受け入れ条件と自動テスト成功を確認してからProductionへ公開し、Productionの正常系と共有DBの確認を行う。最終的な結果は `04_test_results.md` に記録する。
 
-### 環境の要確認事項
+### 要確認事項
 
-1. Vercelの実際の設定、デプロイ方式、関数実行時間上限およびEJS・publicの配信状況。必要な設定ファイルの配置は現状確認後に決定する。
-2. Preview・Productionから分離されたテスト専用Neon DBの準備状況。接続情報そのものは設計書に記載しない。
+| No. | 確認事項 | 本書の案・確認理由 |
+| --- | --- | --- |
+| 1 | APIの日時キー | 要件定義書3.1は `created_at`・`updated_at`、今回の指定はcamelCase。本書では `createdAt`・`updatedAt` を採用する案。要件定義書は変更せず、APIキーとDB列を区別する扱いでよいか確認する。 |
+| 2 | 画面ルートの登録方式 | APIの `todoRouter` は `/api/v1/todos` 専用にし、`GET /todo` は `index.ts` から `renderTodoPage` へ接続する案。画面専用Routerを分ける必要があるか確認する。 |
+| 3 | 自動テストの配置 | 旧設計の `tests/todo/` ではなく、指定された追加先の範囲内に収めるため `src/apps/todo/tests/` を提案。テスト用ビルド設定と実行方法も確認する。 |
+| 4 | 既存テーブル | Neonの実際のスキーマ、`todo_tasks` または旧案の `todos` の有無は未確認。既存データがあれば、勝手にDROP・改名・移行しない。 |
+| 5 | Vercel | 実際の設定、デプロイ方式、関数実行時間上限、EJS・publicの配信状況。必要な設定ファイルは現状確認後に決定する。 |
+| 6 | テスト用DB | Preview・Productionから分離したNeon DBの準備状況。接続情報そのものは記載しない。 |
+| 7 | 実装計画書への反映 | 既存の実装計画案には旧テーブル名・Router構成等が記載されている可能性がある。本設計の確定後に改訂する。今回は対象外。 |
 
-追加ファイルの推奨配置、本文処理、変更成功後の一覧再取得失敗時の扱い、テスト用DBの方式は承認済み。上記は環境の実態確認事項として残す。要件定義書の変更、SQLの実行、実装、デプロイは行わない。
+本文処理、変更成功後の一覧再取得失敗時の扱い、テスト用DBの方式など、今回の指定と矛盾しない承認済み事項は維持する。要件定義書の変更、SQLの実行、実装、デプロイは行わない。
 
 ### 技術資料
 
