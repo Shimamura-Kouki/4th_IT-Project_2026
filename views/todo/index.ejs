@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TODO一覧</title>
+    <link rel="stylesheet" href="/todo/todo.css">
+    <script type="module" src="/todo/todo.js"></script>
+</head>
+<body>
+    <main>
+        <h1>TODO一覧</h1>
+        <form id="todo-form">
+            <label for="todo-title">タイトル</label>
+            <div class="inputs">
+                <input id="todo-title" name="title" type="text" required>
+                <button id="todo-submit" type="submit">登録</button>
+            </div>
+        </form>
+        <p id="todo-status" role="status" aria-live="polite"></p>
+        <p id="todo-error" role="alert" hidden></p>
+        <button id="todo-reload" type="button">一覧を再取得</button>
+        <ul id="todo-list" aria-label="TODO一覧"></ul>
+        <noscript>TODOの操作にはJavaScriptが必要です。</noscript>
+    </main>
+</body>
+</html>
